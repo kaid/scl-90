@@ -1,6 +1,8 @@
 use eframe::egui;
 use serde::Deserialize;
 use std::fs::File;
+use std::collections::HashMap;
+use std::io::Read;
 
 #[derive(Debug, Deserialize)]
 struct Question {
@@ -10,15 +12,32 @@ struct Question {
     text: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ScaleConfig {
+    name: String,
+    questions: Vec<usize>,
+}
+
+#[derive(Debug)]
+struct Scale {
+    name: String,
+    questions: Vec<usize>,
+    score: f32,
+    items_answered: usize,
+}
+
 struct Scl90App {
     questions: Vec<Question>,
     answers: Vec<Option<i32>>,
     total_score: i32,
+    scales: HashMap<String, Scale>,
+    answered_count: usize,
 }
 
 impl Scl90App {
     fn new() -> Self {
-        let file = File::open("assets/scl-90.csv").expect("Failed to open file");
+        // Load questions from CSV
+        let file = File::open("assets/scl-90.csv").expect("Failed to open questions file");
         let mut rdr = csv::Reader::from_reader(file);
         let questions: Vec<Question> = rdr
             .deserialize()
@@ -27,17 +46,70 @@ impl Scl90App {
         
         let answers = vec![None; questions.len()];
         
+        // Load scales from RON file
+        let mut scales_file = File::open("assets/scales.ron").expect("Failed to open scales file");
+        let mut scales_content = String::new();
+        scales_file.read_to_string(&mut scales_content).expect("Failed to read scales file");
+        
+        let scales_config: HashMap<String, ScaleConfig> = ron::from_str(&scales_content)
+            .expect("Failed to parse scales configuration");
+        
+        // Convert ScaleConfig to Scale
+        let scales = scales_config.into_iter()
+            .map(|(key, config)| {
+                (key, Scale {
+                    name: config.name,
+                    questions: config.questions,
+                    score: 0.0,
+                    items_answered: 0,
+                })
+            })
+            .collect();
+
         Self {
             questions,
             answers,
             total_score: 0,
+            scales,
+            answered_count: 0,
         }
     }
 
-    fn calculate_total(&mut self) {
+    fn calculate_scores(&mut self) {
+        self.answered_count = self.answers.iter().filter(|x| x.is_some()).count();
+        // Calculate total score
         self.total_score = self.answers.iter()
             .filter_map(|&x| x)
             .sum();
+
+        // Calculate scores for each scale
+        for scale in self.scales.values_mut() {
+            let mut scale_sum = 0;
+            scale.items_answered = 0;
+            
+            for &q_num in &scale.questions {
+                if let Some(score) = self.answers[q_num - 1] {
+                    scale_sum += score;
+                    scale.items_answered += 1;
+    }
+}
+
+            scale.score = if scale.items_answered > 0 {
+                scale_sum as f32 / scale.items_answered as f32
+            } else {
+                0.0
+            };
+        }
+    }
+
+    fn get_severity_level(score: f32) -> (&'static str, egui::Color32) {
+        match score {
+            s if s < 0.5 => ("Normal", egui::Color32::GREEN),
+            s if s < 1.0 => ("Mild", egui::Color32::YELLOW),
+            s if s < 2.0 => ("Moderate", egui::Color32::GOLD),
+            s if s < 3.0 => ("Severe", egui::Color32::RED),
+            _ => ("Extreme", egui::Color32::DARK_RED),
+        }
     }
 }
 
@@ -46,6 +118,9 @@ impl eframe::App for Scl90App {
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("SCL-90 Questionnaire");
+                
+                // Progress indicator
+                ui.label(format!("Questions answered: {}/90", self.answered_count));
                 
                 let mut changed_answer = false;
                 let mut changed_index = 0;
@@ -78,11 +153,42 @@ impl eframe::App for Scl90App {
                 
                 if changed_answer {
                     self.answers[changed_index] = new_value;
-                    self.calculate_total();
+                    self.calculate_scores();
                 }
                 
                 ui.separator();
-                ui.heading(format!("Total Score: {}", self.total_score));
+                
+                // Display results
+                ui.heading("Results");
+                if self.answered_count > 0 {
+                    let gsi = self.total_score as f32 / self.answered_count as f32;
+                    let (severity, color) = Self::get_severity_level(gsi);
+                    ui.horizontal(|ui| {
+                        ui.label("Global Severity Index (GSI):");
+                        ui.colored_label(color, format!("{:.2} - {}", gsi, severity));
+                    });
+                    
+                    ui.separator();
+                    ui.heading("Scale Scores:");
+                    
+                    for scale in self.scales.values() {
+                        if scale.items_answered > 0 {
+                            let (severity, color) = Self::get_severity_level(scale.score);
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{}: ", scale.name));
+                                ui.colored_label(
+                                    color,
+                                    format!("{:.2} - {} ({}/{} items answered)",
+                                        scale.score,
+                                        severity,
+                                        scale.items_answered,
+                                        scale.questions.len()
+    )
+                                );
+                            });
+}
+                    }
+                }
             });
         });
     }
