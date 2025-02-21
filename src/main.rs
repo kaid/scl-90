@@ -32,6 +32,7 @@ struct Scl90App {
     total_score: i32,
     scales: HashMap<String, Scale>,
     answered_count: usize,
+    import_text: String,
 }
 
 impl Scl90App {
@@ -72,6 +73,7 @@ impl Scl90App {
             total_score: 0,
             scales,
             answered_count: 0,
+            import_text: String::new(),
         }
     }
 
@@ -102,6 +104,32 @@ impl Scl90App {
         }
     }
 
+    fn answers_to_string(&self) -> String {
+        self.answers.iter()
+            .map(|opt| match opt {
+                Some(n) => n.to_string(),
+                None => "-".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    fn load_answers_from_string(&mut self, s: &str) -> Result<(), String> {
+        if s.len() != self.questions.len() {
+            return Err("Invalid answer string length".to_string());
+        }
+
+        self.answers = s.chars()
+            .map(|c| match c {
+                '-' => None,
+                '0'..='4' => c.to_digit(10).map(|n| n as i32),
+                _ => None,
+            })
+            .collect();
+                    self.calculate_scores();
+        Ok(())
+                }
+                
     fn get_severity_level(score: f32) -> (&'static str, egui::Color32) {
         match score {
             s if s < 0.5 => ("Normal", egui::Color32::GREEN),
@@ -119,9 +147,32 @@ impl eframe::App for Scl90App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("SCL-90 Questionnaire");
                 
-                // Progress indicator
-                ui.label(format!("Questions answered: {}/90", self.answered_count));
+                // Add import/export UI
+                ui.horizontal(|ui| {
+                    if ui.button("Export Answers").clicked() {
+                        ui.output_mut(|o| {
+                            o.copied_text = self.answers_to_string();
+                        });
+                    }
+                    
+                    ui.text_edit_singleline(&mut self.import_text);
+                    if ui.button("Import Answers").clicked() {
+                        // Clone the text before using it
+                        let import_text = self.import_text.clone();
+                        if let Err(e) = self.load_answers_from_string(&import_text) {
+                            eprintln!("Error loading answers: {}", e);
+                        }
+                    }
+                    
+                    if ui.button("Reset").clicked() {
+                        self.answers = vec![None; self.questions.len()];
+                        self.calculate_scores();
+                    }
+                });
                 
+                // Progress indicator
+                ui.add_space(10.0);
+                ui.label(format!("Questions answered: {}/90", self.answered_count));
                 let mut changed_answer = false;
                 let mut changed_index = 0;
                 let mut new_value = None;
@@ -138,7 +189,7 @@ impl eframe::App for Scl90App {
                                     3 => "Quite a Bit",
                                     4 => "Extremely",
                                     _ => unreachable!(),
-    };
+                                };
     
                                 let selected = self.answers[index] == Some(score);
                                 if ui.radio(selected, text).clicked() {
