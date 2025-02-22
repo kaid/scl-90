@@ -179,10 +179,12 @@ impl eframe::App for Scl90App {
                 let mut changed_answer = false;
                 let mut changed_index = 0;
                 let mut new_value = None;
+                ui.add_space(10.0);
 
                 for (index, question) in self.questions.iter().enumerate() {
-                    ui.group(|ui| {
-                        ui.label(format!("{}. {}", question.number, question.text));
+                    ui.vertical(|ui| {
+                        ui.label(format!("{}. {}:", question.number, question.text));
+                        ui.add_space(5.0);
                         ui.horizontal(|ui| {
                             for score in 0..=4 {
                                 let text = match score {
@@ -203,6 +205,7 @@ impl eframe::App for Scl90App {
                             }
                         });
                     });
+                    ui.add_space(10.0);
                 }
 
                 if changed_answer {
