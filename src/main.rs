@@ -153,9 +153,7 @@ impl eframe::App for Scl90App {
                 // Add import/export UI
                 ui.horizontal(|ui| {
                     if ui.button("Export Answers").clicked() {
-                        ui.output_mut(|o| {
-                            o.copied_text = self.answers_to_string();
-                        });
+                        ui.ctx().copy_text(self.answers_to_string());
                     }
 
                     ui.text_edit_singleline(&mut self.import_text);
@@ -261,6 +259,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "SCL-90 Questionnaire",
         native_options,
-        Box::new(|_cc| Box::new(Scl90App::new())),
+        Box::new(|_cc| Ok(Box::new(Scl90App::new()))),
     )
 }
